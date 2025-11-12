@@ -30,14 +30,14 @@ O **QueroCarro** é uma Single Page Application (SPA) desenvolvida para facilita
 ### 🎯 Problema Resolvido
 
 Encontrar um veículo que se encaixe no seu orçamento pode ser trabalhoso. O QueroCarro resolve isso ao:
-- Buscar automaticamente veículos dentro da sua faixa de preço (±R$5.000)
+- Buscar automaticamente veículos dentro da sua faixa de preço
 - Mostrar todos os anos disponíveis de cada modelo em um único card
 - Fornecer links diretos para busca nas principais plataformas de venda
 
 ## ✨ Funcionalidades
 
 ### 🔍 Busca Inteligente
-- **Por orçamento**: Defina seu valor e encontre veículos na faixa ±R$5.000
+- **Por orçamento**: Defina seu valor e encontre veículos na faixa
 - **Por tipo**: Escolha entre carros, motos ou caminhões
 - **Por marca e modelo**: Busca específica para resultados precisos
 - **Por ano**: Filtre por intervalo de anos (de/até)
@@ -109,16 +109,6 @@ python3 -m http.server 8000
 3. **Pronto!** 🎉
 O site estará funcionando localmente.
 
-## 📸 Capturas de Tela
-
-### Tela Inicial
-![Tela Inicial](docs/screenshot-home.png)
-
-### Resultados da Busca
-![Resultados](docs/screenshot-results.png)
-
-### Card de Veículo
-![Card](docs/screenshot-card.png)
 
 ## 🔌 API
 
@@ -189,28 +179,12 @@ Contribuições são bem-vindas! Siga os passos:
 
 Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
-## 👤 Autor
-
-**Guilherme Piva**
-
-- GitHub: [@GuilhermePiva28](https://github.com/GuilhermePiva28)
-- Repositório: [QueroCarro](https://github.com/GuilhermePiva28/QueroCarro)
-
----
-
-## 🙏 Agradecimentos
-
-- [Tabela FIPE](https://veiculos.fipe.org.br/) - Dados oficiais de preços
-- [Parallelum](https://parallelum.com.br/fipe) - API REST da FIPE
-- [React](https://reactjs.org/) - Framework JavaScript
-- [Tailwind CSS](https://tailwindcss.com/) - Framework CSS
-
 ---
 
 <div align="center">
 
 **⭐ Se este projeto te ajudou, considere dar uma estrela!**
 
-Desenvolvido com ❤️ por [Guilherme Piva](https://github.com/GuilhermePiva28)
+Desenvolvido por [Guilherme Piva](https://github.com/GuilhermePiva28)
 
 </div>
