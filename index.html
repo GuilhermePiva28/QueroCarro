@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QueroCarro - Encontre seu veículo ideal</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const BASE_URL = 'https://parallelum.com.br/fipe/api/v1';
+
+        const ENDPOINTS = {
+            carros: {
+                marcas: `${BASE_URL}/carros/marcas`,
+                modelos: (m) => `${BASE_URL}/carros/marcas/${m}/modelos`,
+                anos: (m, mo) => `${BASE_URL}/carros/marcas/${m}/modelos/${mo}/anos`,
+                valor: (m, mo, a) => `${BASE_URL}/carros/marcas/${m}/modelos/${mo}/anos/${a}`
+            },
+            motos: {
+                marcas: `${BASE_URL}/motos/marcas`,
+                modelos: (m) => `${BASE_URL}/motos/marcas/${m}/modelos`,
+                anos: (m, mo) => `${BASE_URL}/motos/marcas/${m}/modelos/${mo}/anos`,
+                valor: (m, mo, a) => `${BASE_URL}/motos/marcas/${m}/modelos/${mo}/anos/${a}`
+            },
+            caminhoes: {
+                marcas: `${BASE_URL}/caminhoes/marcas`,
+                modelos: (m) => `${BASE_URL}/caminhoes/marcas/${m}/modelos`,
+                anos: (m, mo) => `${BASE_URL}/caminhoes/marcas/${m}/modelos/${mo}/anos`,
+                valor: (m, mo, a) => `${BASE_URL}/caminhoes/marcas/${m}/modelos/${mo}/anos/${a}`
+            }
+        };
+
+        function converterPrecoFipe(valorString) {
+            if (!valorString) return 0;
+            return parseFloat(valorString.replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
+        }
+
+        function formatarPreco(valor) {
+            return new Intl.NumberFormat('pt-BR', { 
+                style: 'currency', 
+                currency: 'BRL', 
+                minimumFractionDigits: 0, 
+                maximumFractionDigits: 0 
+            }).format(valor);
+        }
+
+        function normalizarParaURL(str) {
+            return str.toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/[^\w-]/g, '');
+        }
+
+        function gerarURL(plataforma, marca, modelo) {
+            const marcaSlug = normalizarParaURL(marca);
+            const modeloSlug = normalizarParaURL(modelo);
+            const urls = {
+                webmotors: `https://www.webmotors.com.br/comprar/${marcaSlug}/${modeloSlug}`,
+                olx: `https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/${marcaSlug}/${modeloSlug}`,
+                icarros: `https://www.icarros.com.br/${marcaSlug}/${modeloSlug}.html`,
+                mercadolivre: `https://carros.mercadolivre.com.br/${marcaSlug}/${modeloSlug}`
+            };
+            return urls[plataforma] || '#';
+        }
+
+        function getBadgeCombustivel(combustivel) {
+            const badges = {
+                'Gasolina': 'bg-gray-200 text-gray-700',
+                'Flex': 'bg-green-200 text-green-700',
+                'Diesel': 'bg-yellow-200 text-yellow-700',
+                'Elétrico': 'bg-blue-200 text-blue-700',
+                'Híbrido': 'bg-purple-200 text-purple-700',
+                'Álcool': 'bg-green-200 text-green-700'
+            };
+            return badges[combustivel] || 'bg-gray-200 text-gray-700';
+        }
+
+        function gerarAnos() {
+            const anoAtual = new Date().getFullYear();
+            const anos = [];
+            for (let ano = anoAtual; ano >= 1980; ano--) anos.push(ano);
+            anos.unshift('0 KM');
+            return anos;
+        }
+
+        // Cache para evitar requisições repetidas
+        const cache = {};
+        
+        async function buscarMarcas(tipo) {
+            const cacheKey = `marcas_${tipo}`;
+            if (cache[cacheKey]) {
+                console.log('✅ Usando cache para marcas');
+                return cache[cacheKey];
+            }
+            
+            try {
+                await new Promise(resolve => setTimeout(resolve, 300)); // delay maior: 300ms
+                const url = `${BASE_URL}/${tipo}/marcas`;
+                console.log('🔍 Buscando marcas em:', url);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    console.error(`❌ Status da resposta: ${response.status}`);
+                    if (response.status === 429) {
+                        alert('⚠️ Limite da API FIPE atingido. Por favor, aguarde 5-10 minutos antes de tentar novamente.');
+                        return [];
+                    }
+                }
+                
+                const data = await response.json();
+                console.log(`✅ ${data.length} marcas recebidas`);
+                
+                if (data.error) {
+                    console.error('❌ Erro na resposta da API:', data.error);
+                    alert('⚠️ Erro ao buscar marcas. Aguarde alguns minutos e tente novamente.');
+                    return [];
+                }
+                
+                cache[cacheKey] = data;
+                return data;
+            } catch (error) {
+                console.error('❌ Erro ao buscar marcas:', error);
+                return [];
+            }
+        }
+
+        async function buscarModelos(tipo, codigoMarca) {
+            const cacheKey = `modelos_${tipo}_${codigoMarca}`;
+            if (cache[cacheKey]) {
+                console.log('✅ Usando cache para modelos');
+                return cache[cacheKey];
+            }
+            
+            try {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const url = `${BASE_URL}/${tipo}/marcas/${codigoMarca}/modelos`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.error || response.status === 429) {
+                    console.error('❌ Erro ao buscar modelos');
+                    return [];
+                }
+                
+                cache[cacheKey] = data.modelos || data;
+                return data.modelos || data;
+            } catch (error) {
+                console.error('❌ Erro ao buscar modelos:', error);
+                return [];
+            }
+        }
+
+        async function buscarAnos(tipo, codigoMarca, codigoModelo) {
+            const cacheKey = `anos_${tipo}_${codigoMarca}_${codigoModelo}`;
+            if (cache[cacheKey]) {
+                console.log('✅ Usando cache para anos');
+                return cache[cacheKey];
+            }
+            
+            try {
+                await new Promise(resolve => setTimeout(resolve, 350));
+                const url = `${BASE_URL}/${tipo}/marcas/${codigoMarca}/modelos/${codigoModelo}/anos`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.error || response.status === 429) {
+                    console.error('❌ Erro ao buscar anos');
+                    return [];
+                }
+                
+                cache[cacheKey] = data;
+                return data;
+            } catch (error) {
+                console.error('❌ Erro ao buscar anos:', error);
+                return [];
+            }
+        }
+
+        async function buscarValorFipe(tipo, codigoMarca, codigoModelo, codigoAno) {
+            const cacheKey = `valor_${tipo}_${codigoMarca}_${codigoModelo}_${codigoAno}`;
+            if (cache[cacheKey]) {
+                return cache[cacheKey];
+            }
+            
+            try {
+                await new Promise(resolve => setTimeout(resolve, 400));
+                const url = `${BASE_URL}/${tipo}/marcas/${codigoMarca}/modelos/${codigoModelo}/anos/${codigoAno}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.error || response.status === 429) {
+                    console.error('❌ Erro ao buscar valor');
+                    return null;
+                }
+                
+                cache[cacheKey] = data;
+                return data;
+            } catch (error) {
+                console.error('❌ Erro ao buscar valor:', error);
+                return null;
+            }
+        }
+
+        function Header() {
+            return (
+                <header
+                    className="relative text-white shadow-lg bg-cover bg-center"
+                    style={{
+                        backgroundImage: "url('logo-header.png')",
+                    }}
+                >
+                    <div className="absolute inset-0 bg-blue-900/70 backdrop-blur-sm"></div>
+                    <div className="relative container mx-auto px-4 py-6">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                            <img 
+                                src="logo-header.png" 
+                                alt="QueroCarro" 
+                                className="h-16 md:h-20 mix-blend-lighten"
+                            />
+                            <p className="text-sm md:text-base opacity-90 text-center">
+                                Encontre seu veículo ideal com preços da Tabela FIPE
+                            </p>
+                        </div>
+                    </div>
+                </header>
+            );
+        }
+
+        function BotaoPlataforma({ nome, cor, url }) {
+            const cores = {
+                vermelho: 'bg-red-600 hover:bg-red-700',
+                roxo: 'bg-purple-600 hover:bg-purple-700',
+                laranja: 'bg-orange-600 hover:bg-orange-700',
+                amarelo: 'bg-yellow-500 hover:bg-yellow-600'
+            };
+            return (
+                <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${cores[cor]} text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all duration-300 hover:scale-105`}
+                >
+                    {nome} ↗️
+                </a>
+            );
+        }
+
+        function ResultadoCard({ veiculoAgrupado }) {
+            const primeiroVeiculo = veiculoAgrupado.anos[0];
+            const valorMedio = veiculoAgrupado.anos.reduce((acc, v) => acc + converterPrecoFipe(v.Valor), 0) / veiculoAgrupado.anos.length;
+            
+            return (
+                <div className="bg-white rounded-xl shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 p-6 border border-gray-100">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">
+                        {primeiroVeiculo.Marca} {primeiroVeiculo.Modelo}
+                    </h3>
+                    <div className="flex gap-2 flex-wrap mb-4">
+                        {veiculoAgrupado.combustiveis.map((comb, idx) => (
+                            <span key={idx} className={`px-2 py-1 rounded-full text-xs font-medium ${getBadgeCombustivel(comb)}`}>
+                                {comb}
+                            </span>
+                        ))}
+                    </div>
+                    <div className="border-t border-gray-200 pt-4 mb-4">
+                        <p className="text-sm text-gray-600 mb-2 font-semibold">Valores FIPE por Ano:</p>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {veiculoAgrupado.anos.map((v, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                    <div className="flex gap-2 items-center">
+                                        <span className="text-sm font-semibold text-gray-700">{v.AnoModelo}</span>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getBadgeCombustivel(v.Combustivel)}`}>
+                                            {v.Combustivel}
+                                        </span>
+                                    </div>
+                                    <span className="text-base font-bold text-green-600">{v.Valor}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
+                            <span className="text-sm text-gray-600">Valor Médio:</span>
+                            <span className="text-xl font-bold text-blue-600">{formatarPreco(valorMedio)}</span>
+                        </div>
+                    </div>
+                    <div className="border-t border-gray-200 pt-4">
+                        <p className="text-sm font-semibold text-gray-700 mb-3 text-center">Buscar em:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <BotaoPlataforma nome="Webmotors" cor="vermelho" url={gerarURL('webmotors', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
+                            <BotaoPlataforma nome="OLX" cor="roxo" url={gerarURL('olx', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
+                            <BotaoPlataforma nome="iCarros" cor="laranja" url={gerarURL('icarros', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
+                            <BotaoPlataforma nome="Merc. Livre" cor="amarelo" url={gerarURL('mercadolivre', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function LoadingSpinner({ progresso }) {
+            return (
+                <div className="flex flex-col items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mb-4"></div>
+                    <p className="text-gray-600 font-medium text-lg">🔍 Buscando veículos...</p>
+                    {progresso && progresso.total > 0 && (
+                        <div className="mt-4 w-full max-w-md">
+                            <div className="bg-gray-200 rounded-full h-2 mb-2">
+                                <div 
+                                    className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
+                                    style={{ width: `${(progresso.atual / progresso.total) * 100}%` }}
+                                ></div>
+                            </div>
+                            <p className="text-sm text-gray-600 text-center">
+                                {progresso.mensagem} ({progresso.atual}/{progresso.total})
+                            </p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function EstadoInicial() {
+            return (
+                <div className="text-center py-12 px-4">
+                    <div className="inline-block p-6 bg-blue-50 rounded-full mb-4">
+                        <span style={{fontSize: '64px'}}>🔍</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                        Pronto para encontrar seu veículo?
+                    </h3>
+                    <p className="text-gray-600 max-w-md mx-auto">
+                        Configure os filtros acima e clique em "Buscar Veículos"
+                    </p>
+                    <div className="mt-6 flex flex-col items-center gap-3 text-sm text-gray-500">
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>Busca específica por marca e modelo</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>Busca ampla em todas as marcas</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>Links diretos para plataformas de venda</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function EmptyState() {
+            return (
+                <div className="text-center py-12 px-4">
+                    <div className="inline-block p-6 bg-gray-100 rounded-full mb-4">
+                        <span style={{fontSize: '64px'}}>😕</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">Nenhum veículo encontrado</h3>
+                    <p className="text-gray-600 mb-4">Não encontramos veículos que correspondam aos seus critérios.</p>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
+                        <p className="text-sm text-blue-800"><strong>Dicas:</strong></p>
+                        <ul className="text-sm text-blue-700 mt-2 space-y-1 text-left">
+                            <li>• Tente aumentar a faixa de orçamento</li>
+                            <li>• Selecione "Todas as marcas" para busca ampla</li>
+                            <li>• Remova os filtros de ano</li>
+                        </ul>
+                    </div>
+                </div>
+            );
+        }
+
+        function QueroCarro() {
+            const [tipoVeiculo, setTipoVeiculo] = React.useState('carros');
+            const [orcamento, setOrcamento] = React.useState(50000);
+            const [marcas, setMarcas] = React.useState([]);
+            const [marcaSelecionada, setMarcaSelecionada] = React.useState('');
+            const [modelos, setModelos] = React.useState([]);
+            const [modeloSelecionado, setModeloSelecionado] = React.useState('');
+            const [anoInicio, setAnoInicio] = React.useState('');
+            const [anoFim, setAnoFim] = React.useState('');
+            const [resultados, setResultados] = React.useState([]);
+            const [loading, setLoading] = React.useState(false);
+            const [buscaRealizada, setBuscaRealizada] = React.useState(false);
+            const [progresso, setProgresso] = React.useState({ atual: 0, total: 0, mensagem: '' });
+
+            React.useEffect(() => {
+                async function carregarMarcas() {
+                    console.log('Carregando marcas para tipo:', tipoVeiculo);
+                    const marcasData = await buscarMarcas(tipoVeiculo);
+                    console.log('Marcas carregadas:', marcasData);
+                    const marcasArray = Array.isArray(marcasData) ? marcasData : [];
+                    console.log('Marcas array final:', marcasArray.length, 'marcas');
+                    setMarcas(marcasArray);
+                    setMarcaSelecionada('');
+                    setModelos([]);
+                    setModeloSelecionado('');
+                }
+                if (tipoVeiculo) {
+                    carregarMarcas();
+                }
+            }, [tipoVeiculo]);
+
+            React.useEffect(() => {
+                async function carregarModelos() {
+                    if (marcaSelecionada) {
+                        const modelosData = await buscarModelos(tipoVeiculo, marcaSelecionada);
+                        setModelos(Array.isArray(modelosData) ? modelosData : []);
+                        setModeloSelecionado('');
+                    } else {
+                        setModelos([]);
+                        setModeloSelecionado('');
+                    }
+                }
+                carregarModelos();
+            }, [marcaSelecionada, tipoVeiculo]);
+
+            function agruparVeiculos(resultados) {
+                const grupos = {};
+                resultados.forEach(veiculo => {
+                    const chave = `${veiculo.Marca}-${veiculo.Modelo}`;
+                    if (!grupos[chave]) {
+                        grupos[chave] = {
+                            marca: veiculo.Marca,
+                            modelo: veiculo.Modelo,
+                            anos: [],
+                            combustiveis: new Set()
+                        };
+                    }
+                    grupos[chave].anos.push(veiculo);
+                    grupos[chave].combustiveis.add(veiculo.Combustivel);
+                });
+                
+                return Object.values(grupos).map(grupo => ({
+                    marca: grupo.marca,
+                    modelo: grupo.modelo,
+                    anos: grupo.anos.sort((a, b) => parseInt(b.AnoModelo) - parseInt(a.AnoModelo)),
+                    combustiveis: Array.from(grupo.combustiveis)
+                })).sort((a, b) => {
+                    const mediaA = a.anos.reduce((acc, v) => acc + converterPrecoFipe(v.Valor), 0) / a.anos.length;
+                    const mediaB = b.anos.reduce((acc, v) => acc + converterPrecoFipe(v.Valor), 0) / b.anos.length;
+                    return mediaA - mediaB;
+                });
+            }
+
+            async function buscaEspecifica() {
+                const resultados = [];
+                const precoMin = orcamento - 5000;
+                const precoMax = orcamento + 5000;
+                const anosDisponiveis = await buscarAnos(tipoVeiculo, marcaSelecionada, modeloSelecionado);
+                
+                let anosFiltrados = anosDisponiveis;
+                if (anoInicio || anoFim) {
+                    anosFiltrados = anosDisponiveis.filter(ano => {
+                        const anoNumero = parseInt(ano.codigo.split('-')[0]);
+                        const inicio = anoInicio ? (anoInicio === '0 KM' ? 32000 : parseInt(anoInicio)) : 0;
+                        const fim = anoFim ? (anoFim === '0 KM' ? 32000 : parseInt(anoFim)) : 9999;
+                        return anoNumero >= inicio && anoNumero <= fim;
+                    });
+                }
+                
+                for (let i = 0; i < anosFiltrados.length; i++) {
+                    const ano = anosFiltrados[i];
+                    try {
+                        setProgresso({
+                            atual: i + 1,
+                            total: anosFiltrados.length,
+                            mensagem: `Verificando ano ${ano.nome}...`
+                        });
+                        
+                        const valorData = await buscarValorFipe(tipoVeiculo, marcaSelecionada, modeloSelecionado, ano.codigo);
+                        if (valorData) {
+                            const valor = converterPrecoFipe(valorData.Valor);
+                            if (valor >= precoMin && valor <= precoMax) {
+                                resultados.push(valorData);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Erro:', error);
+                    }
+                }
+                return resultados;
+            }
+
+            async function buscaAmpla() {
+                const resultados = [];
+                const precoMin = orcamento - 5000;
+                const precoMax = orcamento + 5000;
+                
+                let marcasParaBuscar = marcaSelecionada 
+                    ? [marcas.find(m => m.codigo === marcaSelecionada)] 
+                    : marcas.slice(0, 15);
+                
+                setProgresso({
+                    atual: 0,
+                    total: marcasParaBuscar.length,
+                    mensagem: 'Iniciando busca ampla...'
+                });
+                
+                for (let i = 0; i < marcasParaBuscar.length; i++) {
+                    const marca = marcasParaBuscar[i];
+                    try {
+                        setProgresso({
+                            atual: i + 1,
+                            total: marcasParaBuscar.length,
+                            mensagem: `Buscando ${marca.nome}...`
+                        });
+                        
+                        const modelosMarca = await buscarModelos(tipoVeiculo, marca.codigo);
+                        const modelosLimitados = modelosMarca.slice(0, 5);
+                        
+                        for (const modelo of modelosLimitados) {
+                            try {
+                                const anosModelo = await buscarAnos(tipoVeiculo, marca.codigo, modelo.codigo);
+                                const anosRecentes = anosModelo.slice(0, 3);
+                                
+                                for (const ano of anosRecentes) {
+                                    try {
+                                        const valorData = await buscarValorFipe(tipoVeiculo, marca.codigo, modelo.codigo, ano.codigo);
+                                        if (valorData) {
+                                            const valor = converterPrecoFipe(valorData.Valor);
+                                            if (valor >= precoMin && valor <= precoMax) {
+                                                resultados.push(valorData);
+                                            }
+                                        }
+                                    } catch (error) {}
+                                }
+                            } catch (error) {}
+                        }
+                    } catch (error) {}
+                }
+                return resultados;
+            }
+
+            async function buscarVeiculos() {
+                setLoading(true);
+                setBuscaRealizada(true);
+                setResultados([]);
+                
+                try {
+                    let resultadosEncontrados = marcaSelecionada && modeloSelecionado 
+                        ? await buscaEspecifica() 
+                        : await buscaAmpla();
+                    
+                    const resultadosAgrupados = agruparVeiculos(resultadosEncontrados);
+                    setResultados(resultadosAgrupados);
+                    
+                    setTimeout(() => {
+                        const elemento = document.getElementById('resultados');
+                        if (elemento) {
+                            elemento.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    }, 300);
+                } catch (error) {
+                    console.error('Erro na busca:', error);
+                    alert('Erro ao buscar veículos. Tente novamente.');
+                } finally {
+                    setLoading(false);
+                    setProgresso({ atual: 0, total: 0, mensagem: '' });
+                }
+            }
+
+            const anos = gerarAnos();
+            const tiposVeiculo = [
+                { id: 'carros', emoji: '🚗', nome: 'Carros' },
+                { id: 'motos', emoji: '🏍️', nome: 'Motos' },
+                { id: 'caminhoes', emoji: '🚚', nome: 'Caminhões' }
+            ];
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <Header />
+                    
+                    <main className="container mx-auto px-4 py-8">
+                        <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 max-w-4xl mx-auto">
+                            <div className="space-y-3 mb-6">
+                                <label className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+                                    🔧 Que tipo de veículo você procura?
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {tiposVeiculo.map((tipo) => (
+                                        <button
+                                            key={tipo.id}
+                                            onClick={() => setTipoVeiculo(tipo.id)}
+                                            className={`p-4 rounded-lg border-2 font-medium transition-all duration-300 flex items-center justify-center gap-3 ${
+                                                tipoVeiculo === tipo.id
+                                                    ? 'border-blue-500 bg-blue-50 text-blue-700 scale-105 shadow-md'
+                                                    : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <span style={{fontSize: '24px'}}>{tipo.emoji}</span>
+                                            {tipo.nome}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 mb-6">
+                                <label className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+                                    💰 Qual seu orçamento?
+                                </label>
+                                <input
+                                    type="range"
+                                    min="10000"
+                                    max="300000"
+                                    step="5000"
+                                    value={orcamento}
+                                    onChange={(e) => setOrcamento(Number(e.target.value))}
+                                    className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer"
+                                />
+                                <div className="flex justify-between items-center">
+                                    <span className="text-2xl font-bold text-blue-600">
+                                        {formatarPreco(orcamento)}
+                                    </span>
+                                    <span className="text-sm text-gray-500">
+                                        Buscando entre {formatarPreco(orcamento - 5000)} e {formatarPreco(orcamento + 5000)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 mb-6">
+                                <label className="flex items-center gap-2 text-base font-semibold text-gray-800">
+                                    🏭 Marca (opcional)
+                                </label>
+                                <select
+                                    value={marcaSelecionada}
+                                    onChange={(e) => setMarcaSelecionada(e.target.value)}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                    <option value="">Todas as marcas</option>
+                                    {Array.isArray(marcas) && marcas.map(marca => (
+                                        <option key={marca.codigo} value={marca.codigo}>
+                                            {marca.nome}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="space-y-3 mb-6">
+                                <label className="flex items-center gap-2 text-base font-semibold text-gray-800">
+                                    🚘 Modelo (opcional)
+                                </label>
+                                <select
+                                    value={modeloSelecionado}
+                                    onChange={(e) => setModeloSelecionado(e.target.value)}
+                                    disabled={!marcaSelecionada}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                >
+                                    <option value="">
+                                        {marcaSelecionada ? 'Todos os modelos' : 'Selecione uma marca primeiro'}
+                                    </option>
+                                    {Array.isArray(modelos) && modelos.map(modelo => (
+                                        <option key={modelo.codigo} value={modelo.codigo}>
+                                            {modelo.nome}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="space-y-3 mb-6">
+                                <label className="flex items-center gap-2 text-base font-semibold text-gray-800">
+                                    📅 Ano do veículo (opcional)
+                                </label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-1 block">De:</label>
+                                        <select
+                                            value={anoInicio}
+                                            onChange={(e) => setAnoInicio(e.target.value)}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="">Todos</option>
+                                            {anos.map(ano => (
+                                                <option key={ano} value={ano}>{ano}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-1 block">Até:</label>
+                                        <select
+                                            value={anoFim}
+                                            onChange={(e) => setAnoFim(e.target.value)}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="">Todos</option>
+                                            {anos.map(ano => (
+                                                <option key={ano} value={ano}>{ano}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={buscarVeiculos}
+                                disabled={loading || !tipoVeiculo}
+                                className="w-full md:w-auto px-8 py-4 bg-blue-500 text-white font-bold text-lg rounded-lg shadow-lg hover:bg-blue-600 hover:shadow-xl disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-3 mx-auto"
+                            >
+                                {loading ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                                        Buscando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <span style={{fontSize: '20px'}}>🔍</span>
+                                        BUSCAR VEÍCULOS
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        {buscaRealizada && (
+                            <div id="resultados" className="mt-12">
+                                <div className="max-w-6xl mx-auto px-4">
+                                    {loading ? (
+                                        <LoadingSpinner progresso={progresso} />
+                                    ) : resultados.length > 0 ? (
+                                        <>
+                                            <div className="mb-6 text-center">
+                                                <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                                                    Resultados da Busca
+                                                </h2>
+                                                <p className="text-gray-600">
+                                                    ✅ {resultados.length} {resultados.length === 1 ? 'modelo encontrado' : 'modelos encontrados'}
+                                                </p>
+                                                <p className="text-sm text-gray-500 mt-1">
+                                                    {resultados.reduce((acc, v) => acc + v.anos.length, 0)} versões disponíveis
+                                                </p>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                {resultados.map((veiculoAgrupado, index) => (
+                                                    <div
+                                                        key={`${veiculoAgrupado.marca}-${veiculoAgrupado.modelo}-${index}`}
+                                                        style={{ animationDelay: `${index * 0.1}s` }}
+                                                    >
+                                                        <ResultadoCard veiculoAgrupado={veiculoAgrupado} />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <EmptyState />
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {!buscaRealizada && (
+                            <div className="mt-12">
+                                <EstadoInicial />
+                            </div>
+                        )}
+                    </main>
+
+                    <footer className="bg-gray-800 text-white py-8 mt-16">
+                        <div className="container mx-auto px-4 text-center">
+                            <p className="text-sm opacity-75">
+                                © 2025 QueroCarro - Dados fornecidos pela Tabela FIPE
+                            </p>
+                            <p className="text-xs opacity-50 mt-2">
+                                As plataformas de venda são de terceiros e não possuem vínculo com este site
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        }
+
+        try {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<QueroCarro />);
+        } catch (error) {
+            console.error('Erro ao renderizar:', error);
+            document.body.innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><h1>ERRO:</h1><pre>' + error.stack + '</pre></div>';
+        }
+    </script>
+</body>
+</html>
