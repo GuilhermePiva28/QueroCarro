@@ -61,9 +61,23 @@
                 .replace(/[^\w-]/g, '');
         }
 
-        function gerarURL(plataforma, marca, modelo) {
+        function gerarURL(plataforma, marca, modelo, anoModelo = '', modeloCompleto = '') {
             const marcaSlug = normalizarParaURL(marca);
             const modeloSlug = normalizarParaURL(modelo);
+            
+            // Extrai o ano do modelo (formato: "2022" ou "2021/2022")
+            // Converte para string caso seja número
+            const anoString = String(anoModelo || '');
+            const anoMatch = anoString.match(/(\d{4})/);
+            const ano = anoMatch ? anoMatch[1] : new Date().getFullYear();
+            
+            // Para ficha técnica: Google AI Search com o modelo completo e ano
+            if (plataforma === 'fichaTecnica') {
+                const buscaFicha = `ficha tecnica ${marca} ${modeloCompleto || modelo} ${ano}`;
+                const query = encodeURIComponent(buscaFicha);
+                return `https://www.google.com/search?udm=50&aep=11&q=${query}`;
+            }
+            
             const urls = {
                 webmotors: `https://www.webmotors.com.br/comprar/${marcaSlug}/${modeloSlug}`,
                 olx: `https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios/${marcaSlug}/${modeloSlug}`,
@@ -293,12 +307,20 @@
                     </div>
                     <div className="border-t border-gray-200 pt-4">
                         <p className="text-sm font-semibold text-gray-700 mb-3 text-center">Buscar em:</p>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-2 mb-3">
                             <BotaoPlataforma nome="Webmotors" cor="vermelho" url={gerarURL('webmotors', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
                             <BotaoPlataforma nome="OLX" cor="roxo" url={gerarURL('olx', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
                             <BotaoPlataforma nome="iCarros" cor="laranja" url={gerarURL('icarros', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
                             <BotaoPlataforma nome="Merc. Livre" cor="amarelo" url={gerarURL('mercadolivre', primeiroVeiculo.Marca, primeiroVeiculo.Modelo)} />
                         </div>
+                        <a
+                            href={gerarURL('fichaTecnica', primeiroVeiculo.Marca, primeiroVeiculo.Modelo, primeiroVeiculo.AnoModelo, primeiroVeiculo.Modelo)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all duration-300 hover:scale-[1.02]"
+                        >
+                            📋 Ficha Técnica Completa
+                        </a>
                     </div>
                 </div>
             );
@@ -378,7 +400,8 @@
 
         function QueroCarro() {
             const [tipoVeiculo, setTipoVeiculo] = React.useState('carros');
-            const [orcamento, setOrcamento] = React.useState(50000);
+            const [valorMinimo, setValorMinimo] = React.useState(0);
+            const [valorMaximo, setValorMaximo] = React.useState(0);
             const [marcas, setMarcas] = React.useState([]);
             const [marcaSelecionada, setMarcaSelecionada] = React.useState('');
             const [modelos, setModelos] = React.useState([]);
@@ -449,10 +472,43 @@
                 });
             }
 
+            function calcularFaixaPreco() {
+                const temMinimo = valorMinimo > 0;
+                const temMaximo = valorMaximo > 0;
+                
+                // Nenhum filtro: busca tudo
+                if (!temMinimo && !temMaximo) {
+                    return { min: 0, max: 1000000 };
+                }
+                
+                // Somente mínimo: aplica margem de ±15%
+                if (temMinimo && !temMaximo) {
+                    const margem = valorMinimo * 0.15;
+                    return {
+                        min: Math.max(0, valorMinimo - margem),
+                        max: valorMinimo + margem
+                    };
+                }
+                
+                // Somente máximo: busca até 15% abaixo do valor máximo
+                if (!temMinimo && temMaximo) {
+                    const margem = valorMaximo * 0.15;
+                    return {
+                        min: Math.max(0, valorMaximo - margem),
+                        max: valorMaximo
+                    };
+                }
+                
+                // Ambos definidos: usa a faixa exata
+                return {
+                    min: valorMinimo,
+                    max: valorMaximo
+                };
+            }
+
             async function buscaEspecifica() {
                 const resultados = [];
-                const precoMin = orcamento - 5000;
-                const precoMax = orcamento + 5000;
+                const { min: precoMin, max: precoMax } = calcularFaixaPreco();
                 const anosDisponiveis = await buscarAnos(tipoVeiculo, marcaSelecionada, modeloSelecionado);
                 
                 let anosFiltrados = anosDisponiveis;
@@ -490,8 +546,7 @@
 
             async function buscaAmpla() {
                 const resultados = [];
-                const precoMin = orcamento - 5000;
-                const precoMax = orcamento + 5000;
+                const { min: precoMin, max: precoMax } = calcularFaixaPreco();
                 
                 let marcasParaBuscar = marcaSelecionada 
                     ? [marcas.find(m => m.codigo === marcaSelecionada)] 
@@ -601,26 +656,100 @@
                                 </div>
                             </div>
 
-                            <div className="space-y-3 mb-6">
+                            <div className="space-y-4 mb-6">
                                 <label className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-                                    💰 Qual seu orçamento?
+                                    💰 Faixa de Preço
                                 </label>
-                                <input
-                                    type="range"
-                                    min="10000"
-                                    max="300000"
-                                    step="5000"
-                                    value={orcamento}
-                                    onChange={(e) => setOrcamento(Number(e.target.value))}
-                                    className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer"
-                                />
-                                <div className="flex justify-between items-center">
-                                    <span className="text-2xl font-bold text-blue-600">
-                                        {formatarPreco(orcamento)}
-                                    </span>
-                                    <span className="text-sm text-gray-500">
-                                        Buscando entre {formatarPreco(orcamento - 5000)} e {formatarPreco(orcamento + 5000)}
-                                    </span>
+                                
+                                <div className="space-y-5">
+                                    {/* Slider Valor Mínimo */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm font-medium text-gray-600">Valor Mínimo</label>
+                                            {valorMinimo > 0 ? (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-bold text-blue-600">
+                                                        {formatarPreco(valorMinimo)}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setValorMinimo(0)}
+                                                        className="text-xs text-red-500 hover:text-red-700"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-sm text-gray-400">Sem limite</span>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="300000"
+                                            step="5000"
+                                            value={valorMinimo}
+                                            onChange={(e) => setValorMinimo(Number(e.target.value))}
+                                            className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-blue-500"
+                                        />
+                                    </div>
+
+                                    {/* Slider Valor Máximo */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm font-medium text-gray-600">Valor Máximo</label>
+                                            {valorMaximo > 0 ? (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-bold text-blue-600">
+                                                        {formatarPreco(valorMaximo)}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setValorMaximo(0)}
+                                                        className="text-xs text-red-500 hover:text-red-700"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-sm text-gray-400">Sem limite</span>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="300000"
+                                            step="5000"
+                                            value={valorMaximo}
+                                            onChange={(e) => setValorMaximo(Number(e.target.value))}
+                                            className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-blue-500"
+                                        />
+                                    </div>
+
+                                    {/* Informações sobre a busca */}
+                                    {(valorMinimo > 0 || valorMaximo > 0) && (
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                            <p className="text-xs text-gray-600 leading-relaxed">
+                                                {valorMinimo > 0 && valorMaximo === 0 && (
+                                                    <>
+                                                        💡 <strong>Busca flexível:</strong> veículos entre {formatarPreco(valorMinimo * 0.85)} e {formatarPreco(valorMinimo * 1.15)}
+                                                        <br/>
+                                                        <span className="text-blue-600">(±15% do valor mínimo)</span>
+                                                    </>
+                                                )}
+                                                {valorMinimo === 0 && valorMaximo > 0 && (
+                                                    <>
+                                                        💡 <strong>Busca até:</strong> veículos de {formatarPreco(valorMaximo * 0.85)} até {formatarPreco(valorMaximo)}
+                                                        <br/>
+                                                        <span className="text-blue-600">(até 15% abaixo do valor máximo)</span>
+                                                    </>
+                                                )}
+                                                {valorMinimo > 0 && valorMaximo > 0 && (
+                                                    <>
+                                                        💡 <strong>Faixa exata:</strong> veículos entre {formatarPreco(valorMinimo)} e {formatarPreco(valorMaximo)}
+                                                    </>
+                                                )}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -767,6 +896,19 @@
                             <p className="text-xs opacity-50 mt-2">
                                 As plataformas de venda são de terceiros e não possuem vínculo com este site
                             </p>
+                            <div className="mt-4 pt-4 border-t border-gray-700">
+                                <p className="text-sm opacity-75">
+                                    Desenvolvido por{' '}
+                                    <a 
+                                        href="https://github.com/GuilhermePiva28" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-400 hover:text-blue-300 transition-colors font-semibold"
+                                    >
+                                        Guilherme Piva
+                                    </a>
+                                </p>
+                            </div>
                         </div>
                     </footer>
                 </div>
